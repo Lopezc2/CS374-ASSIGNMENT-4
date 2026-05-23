@@ -2,6 +2,7 @@
 // Assignment 4
 // Description: 
 
+#define _POSIX_C_SOURCE 200809L
 #include <stdio.h> // PRINT, GET FFLSUH
 #include <signal.h> // SIGINT SIGTSTP
 #include <stdlib.h> // EXIT, GETENV, FREE, MALLOC
@@ -47,6 +48,24 @@ void run_builtin_status(void);
 void run_external(Command *cmd);
 
 /*Signals*/
+/*Signal setup*/
+void setup_signals(void) {
+    struct sigaction sa_int = {0};
+    struct sigaction sa_tstp = {0};
+    
+    // Parent ignores SIGINT
+    sa_int.sa_handler = SIG_IGN;
+    sigemptyset(&sa_int.sa_mask);
+    sa_int.sa_flags = 0;
+    sigaction(SIGINT, &sa_int, NULL);
+
+    // Parent catches SIGTSTP to toggle foreground mode
+    sa_tstp.sa_handler = handle_SIGTSTP;
+    sigemptyset(&sa_tstp.sa_mask);
+    sa_tstp.sa_flags = SA_RESTART;
+    sigaction(SIGTSTP, &sa_tstp, NULL);
+}
+
 // Interrupt signal
 void handle_SIGINT(int sig) {
     (void)sig;
@@ -55,7 +74,7 @@ void handle_SIGINT(int sig) {
 // foreground-only for Ctrl-Z
 void handle_SIGTSTP(int sig) {
     (void)sig;
-    if (!fgOnlyMode) {
+    if (fgOnlyMode == 0) {
         fgOnlyMode = 1;
         char *msg = "\nEntering forground-only mode (& is now ignored)\n";
         write(STDOUT_FILENO, msg, 52);
@@ -66,4 +85,151 @@ void handle_SIGTSTP(int sig) {
     }
 }
 
+/*Parse*/
+void parse_command(char *line, Command *cmd) {
+    char *saveptr;
+    char *token = strtok_r(line, " \t", &saveptr);
+
+    while (token != NULL) {
+        if (strcmp(token, "<") == 0) {
+            token = strtok_r(NULL, " \t", &saveptr);
+            if (token) cmd->input_file = token;
+        } else if (strcmp(token, ">") == 0) {
+            token = strtok_r(NULL, " \t", &saveptr);
+            if (token) cmd-> output_file = token;
+        } else {
+            cmd->argv[cmd->argc++] = token;
+        }
+        token = strtok_r(NULL, " \t", &saveptr);
+    }
+    cmd->argv[cmd->argc] = NULL;
+
+    if (cmd->argc > 0 && strcmp(cmd->argv[cmd->argc - 1], "&") == 0) {
+        cmd-> background = 1;
+        cmd->argv[--cmd->argc] = NULL;
+    }
+
+    if (fgOnlyMode) {
+        cmd->background = 0;
+    }
+}
+
+/*Background child reaping*/
+void reap_background_childrent(void) {
+    int wstatus;
+    pid_t pid;
+
+    while ((pid = waitpid(-1, &wstatus, WNOHANG)) > 0) {
+        if (WIFEXITED(wstatus)) {
+            printf("background pid %d is done: exit value %d\n", pid, WEXITSTATUS(wstatus));
+        } else if (WIFSIGNALED(wstatus)) {
+            printf("background pid %d is done: terminated by signal %d\n", pid, WTERMSIG(wstatus));
+        }
+        fflush(stdout);
+    }
+}
+
+/*BUILT-IN COMMANDS*/
+void run_builtin_exit(void) {
+    // Kill all background children before exit
+    for (int i = 0; 0 < bg_pid_count; i ++) {
+        kill(bg_pids[i], SIGTERM);
+    }
+    exit(0);
+}
+
+void run_builtin_cd(Command *cmd) {
+    const char *path = (cmd->argc >= 2) ? cmd->argv[1] : getenv("HOME");
+    if (chdir(path) != 0) {
+        perror("cd");
+    }
+}
+
+void run_builtin_status(void) {
+    if (last_signal_status) {
+        printf("terminated by signal %d\n", last_fg_status);
+    } else {
+        printf("exit value %d\n", last_fg_status);
+    }
+    fflust(stdout);
+}
+
+/*External commands*/
+void run_external(Command *cmd) {
+    pid_t pid = fork();
+
+    if (pid < 0) {
+        perror("fork");
+        return;
+    }
+
+    if (pid == 0) {
+        if (!cmd->background) {
+            struct sigaction sa = {0};
+            sa.sa_handler = SIG_DFL;
+            sigemptyset(&sa.sa_mask);
+            sigaction(SIGINT, &sa, NULL);
+        }
+
+        struct sigaction sa_tstp = {0};
+        sa_tstp.sa_handler = SIG_IGN;
+        sigemptyset(&sa_tstp.sa_mask);
+        sigaction(SIGTSTP, &sa_tstp, NULL);
+
+        // INput redirection
+        const char *Infile = cmd->inputFile;
+        if (!Infile && cmd->background) Infile = "/dev/null";
+        if (Infile) {
+            int fd = open(Infile, O_RDONLY);
+            if(fd < 0) {
+                fprintf(stderr, "cannot open %s for input\n", Infile);
+                exit(1);
+            }
+            dup2(fd, STDIN_FILENO);
+            close(fd);
+        }
+
+        // Output redirection
+        const char *OutFile = cmd->outputFile;
+        if (!OutFile && cmd->background) OutFile = "/dev/null";
+        if (OutFile) {
+            int fd = open(OutFile, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (fd <0) {
+                fprintf(stderr, "cannot open &s for output\n", OutFile);
+                exit(1);
+            }
+            dup2(fd, STDOUT_FILENO);
+            close(fd);
+        }
+        execvp(cmd->argv[0], cmd->argv);
+
+        fprintf(stderr, "%s: no such file or directory\n", cmd->argv[0]);
+        exit(1)
+    }
+
+    // Parent process
+    if (cmd->background) {
+        printf("background pid is %d\n", pid);
+        fflush(stdout);
+        // Track PID
+        if (bg_pid_count < MAX_BG_PIDS) {
+            bg_pids[bg_pid_count++] = pid;
+        }
+    } else {
+        int wstatus;
+        waitpid(pid, &wstatus, 0);
+
+        if (WIFEXITED(wstatus)) {
+            last_fg_status = WEXITSTATUS(wstatus);
+            last_signal_status = 0;
+        } else if (WIFSIGNALED(wstatus)) {
+            last_fg_status = WTERMSIG(wstatus);
+            last_signal_status  = 1;
+            printf("terminated by signal %d\n", last_fg_status);
+            fflush(stdout);
+        }
+    }
+}
+
 /*Main*/
+
