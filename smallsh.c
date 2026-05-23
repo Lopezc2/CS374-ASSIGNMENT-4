@@ -76,8 +76,8 @@ void handle_SIGTSTP(int sig) {
     (void)sig;
     if (fgOnlyMode == 0) {
         fgOnlyMode = 1;
-        char *msg = "\nEntering forground-only mode (& is now ignored)\n";
-        write(STDOUT_FILENO, msg, 52);
+        const char *msg = "\nEntering forground-only mode (& is now ignored)\n";
+        write(STDOUT_FILENO, msg, strlen(msg));
     } else {
         fgOnlyMode = 0;
         char *msg = "\nExiting foreground-only mode\n: ";
@@ -132,7 +132,7 @@ void reap_background_childrent(void) {
 /*BUILT-IN COMMANDS*/
 void run_builtin_exit(void) {
     // Kill all background children before exit
-    for (int i = 0; 0 < bg_pid_count; i ++) {
+    for (int i = 0; i < bg_pid_count; i ++) {
         kill(bg_pids[i], SIGTERM);
     }
     exit(0);
@@ -232,4 +232,52 @@ void run_external(Command *cmd) {
 }
 
 /*Main*/
+int main(void) {
+    setup_signals();
+
+    char *line = NULL;
+    size_t line_cap = 0;
+
+    while (1) {
+        reap_background_children();
+
+        printf(": ");
+        fflush(stdout);
+
+        ssize_t nread = getline(&line, &line_cap, stdin);
+        if (nread == -1) {
+            clearerr(stdin);
+            printf("\n");
+            fflush(stdout);
+            continue;
+        }
+
+        line[strcspn(line, "\n")] = '\0';
+
+        if (line[0] == '\0' || line[0] == '#') {
+            continue;
+        }
+        
+        Command cmd;
+        memset(&cmd, 0, sizeof(cmd));
+        parse_command(line, &cmd);
+
+        if (cmd.argc == 0){
+            continue;
+        }
+
+        if (strcmp(cmd.argv[0], "exit") == 0) {
+            run_builtin_exit();
+        } else if (strcmp(cmd.argv[0], "cd") == 0) {
+            run_builtin_cd(&cmd);
+        } else if (strcmp(cmd.arg[0], "status") == 0) {
+            run_builtin_status();
+        } else {
+            run_external(&cmd);
+        }
+    }
+
+    free(line);
+    return 0;
+}
 
