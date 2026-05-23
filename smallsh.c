@@ -19,7 +19,14 @@
 /*Flags to toggle SIGTSTP*/
 volatile sig_atomic_t fgOnlyMode = 0;
 
-/*Data structure*/
+int last_fg_status = 0; // Exit status or signal of last foreground
+int last_signal_status = 0; // 1 if terminated by signal, 0 if exit
+
+/*Track background process */
+pid_t bg_pids[MAX_BG_PIDS];
+int bg_pid_count = 0;
+
+/*Parse command*/
 typedef struct {
     char *args[MAX_ARGS + 1]; // Command arguments
     int argc;                 // Number of arguments
@@ -27,6 +34,17 @@ typedef struct {
     char *outputFile;         // Output redirection
     int background;           // Run in background
 } Command;
+
+/*Forward declarations */
+
+void setup_signals(void);
+void handle_SIGTSTP(int sig);
+void parse_command(char *line, Command *cmd);
+void reap_background_children(void);
+void run_builtin_exit(void);
+void run_builtin_cd(Command *cmd);
+void run_builtin_status(void);
+void run_external(Command *cmd);
 
 /*Signals*/
 // Interrupt signal
