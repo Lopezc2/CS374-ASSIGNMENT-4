@@ -76,12 +76,12 @@ void handle_SIGTSTP(int sig) {
     (void)sig;
     if (fgOnlyMode == 0) {
         fgOnlyMode = 1;
-        const char *msg = "\nEntering forground-only mode (& is now ignored)\n";
+        const char *msg = "\nEntering foreground-only mode (& is now ignored)\n";
         write(STDOUT_FILENO, msg, strlen(msg));
     } else {
         fgOnlyMode = 0;
-        char *msg = "\nExiting foreground-only mode\n: ";
-        write (STDOUT_FILENO, msg, 32);
+        const char *msg = "\nExiting foreground-only mode\n: ";
+        write (STDOUT_FILENO, msg, strlen(msg));
     }
 }
 
@@ -93,20 +93,20 @@ void parse_command(char *line, Command *cmd) {
     while (token != NULL) {
         if (strcmp(token, "<") == 0) {
             token = strtok_r(NULL, " \t", &saveptr);
-            if (token) cmd->input_file = token;
+            if (token) cmd->inputFile = token;
         } else if (strcmp(token, ">") == 0) {
             token = strtok_r(NULL, " \t", &saveptr);
-            if (token) cmd-> output_file = token;
+            if (token) cmd-> outputFile = token;
         } else {
-            cmd->argv[cmd->argc++] = token;
+            cmd->args[cmd->argc++] = token;
         }
         token = strtok_r(NULL, " \t", &saveptr);
     }
-    cmd->argv[cmd->argc] = NULL;
+    cmd->args[cmd->argc] = NULL;
 
-    if (cmd->argc > 0 && strcmp(cmd->argv[cmd->argc - 1], "&") == 0) {
+    if (cmd->argc > 0 && strcmp(cmd->args[cmd->argc - 1], "&") == 0) {
         cmd-> background = 1;
-        cmd->argv[--cmd->argc] = NULL;
+        cmd->args[--cmd->argc] = NULL;
     }
 
     if (fgOnlyMode) {
@@ -115,7 +115,7 @@ void parse_command(char *line, Command *cmd) {
 }
 
 /*Background child reaping*/
-void reap_background_childrent(void) {
+void reap_background_children(void) {
     int wstatus;
     pid_t pid;
 
@@ -139,7 +139,7 @@ void run_builtin_exit(void) {
 }
 
 void run_builtin_cd(Command *cmd) {
-    const char *path = (cmd->argc >= 2) ? cmd->argv[1] : getenv("HOME");
+    const char *path = (cmd->argc >= 2) ? cmd->args[1] : getenv("HOME");
     if (chdir(path) != 0) {
         perror("cd");
     }
@@ -151,7 +151,7 @@ void run_builtin_status(void) {
     } else {
         printf("exit value %d\n", last_fg_status);
     }
-    fflust(stdout);
+    fflush(stdout);
 }
 
 /*External commands*/
@@ -195,16 +195,16 @@ void run_external(Command *cmd) {
         if (OutFile) {
             int fd = open(OutFile, O_WRONLY | O_CREAT | O_TRUNC, 0644);
             if (fd <0) {
-                fprintf(stderr, "cannot open &s for output\n", OutFile);
+                fprintf(stderr, "cannot open %s for output\n", OutFile);
                 exit(1);
             }
             dup2(fd, STDOUT_FILENO);
             close(fd);
         }
-        execvp(cmd->argv[0], cmd->argv);
+        execvp(cmd->args[0], cmd->args);
 
-        fprintf(stderr, "%s: no such file or directory\n", cmd->argv[0]);
-        exit(1)
+        fprintf(stderr, "%s: no such file or directory\n", cmd->args[0]);
+        exit(1);
     }
 
     // Parent process
@@ -266,11 +266,11 @@ int main(void) {
             continue;
         }
 
-        if (strcmp(cmd.argv[0], "exit") == 0) {
+        if (strcmp(cmd.args[0], "exit") == 0) {
             run_builtin_exit();
-        } else if (strcmp(cmd.argv[0], "cd") == 0) {
+        } else if (strcmp(cmd.args[0], "cd") == 0) {
             run_builtin_cd(&cmd);
-        } else if (strcmp(cmd.arg[0], "status") == 0) {
+        } else if (strcmp(cmd.args[0], "status") == 0) {
             run_builtin_status();
         } else {
             run_external(&cmd);
