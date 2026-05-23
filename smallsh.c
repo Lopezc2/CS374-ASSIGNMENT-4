@@ -80,7 +80,7 @@ void handle_SIGTSTP(int sig) {
         write(STDOUT_FILENO, msg, strlen(msg));
     } else {
         fgOnlyMode = 0;
-        const char *msg = "\nExiting foreground-only mode\n: ";
+        const char *msg = "\nExiting foreground-only mode\n";
         write (STDOUT_FILENO, msg, strlen(msg));
     }
 }
