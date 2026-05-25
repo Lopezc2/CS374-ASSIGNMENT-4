@@ -5,14 +5,14 @@
 //              Signal handling
 
 #define _POSIX_C_SOURCE 200809L
-#include <stdio.h> // PRINT, GET FFLSUH
+#include <stdio.h> // PRINT, GET FFLUSH
 #include <signal.h> // SIGINT SIGTSTP
 #include <stdlib.h> // EXIT, GETENV, FREE, MALLOC
 #include <string.h> // STRCMP, STRTOK_R, STRDUP
 #include <sys/types.h> // PID_T, SSIZE_T
 #include <sys/wait.h> // WAITPID, WIFEXITED, WEXITSTATUS
 #include <unistd.h> // FORK, EXECVP, GETPID, DUP2, WRITE
-#include <fcntl.h> // OPEN, READ, WRITE, CREATE
+#include <fcntl.h> // O_flags (OPEN, READ, WRITE, CREATE)
 
 /*Constants*/
 #define MAX_LINE    2048
@@ -22,8 +22,8 @@
 /*Flags to toggle SIGTSTP*/
 volatile sig_atomic_t fgOnlyMode = 0;
 
-int last_fg_status = 0; // Exit status or signal of last foreground
-int last_signal_status = 0; // 1 if terminated by signal, 0 if exit
+int last_fg_status = 0;
+int last_signal_status = 0; 
 
 /*Track background process */
 pid_t bg_pids[MAX_BG_PIDS];
